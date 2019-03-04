@@ -68,6 +68,9 @@ void OBSBasic::AddDropSource(const char *data, DropType image)
 	const char *type = nullptr;
 	QString name;
 
+	obs_video_info ovi = {};
+	obs_get_video_info(&ovi);
+
 	switch (image) {
 	case DropType_RawText:
 		obs_data_set_string(settings, "text", data);
@@ -102,7 +105,16 @@ void OBSBasic::AddDropSource(const char *data, DropType image)
 	case DropType_Html:
 		obs_data_set_bool(settings, "is_local_file", true);
 		obs_data_set_string(settings, "local_file", data);
+		obs_data_set_int(settings, "width", ovi.base_width);
+		obs_data_set_int(settings, "height", ovi.base_height);
 		name = QUrl::fromLocalFile(QString(data)).fileName();
+		type = "browser_source";
+		break;
+	case DropType_Url:
+		obs_data_set_string(settings, "url", data);
+		obs_data_set_int(settings, "width", ovi.base_width);
+		obs_data_set_int(settings, "height", ovi.base_height);
+		name = data;
 		type = "browser_source";
 		break;
 	}
@@ -141,6 +153,14 @@ void OBSBasic::dragMoveEvent(QDragMoveEvent *event)
 	event->acceptProposedAction();
 }
 
+void OBSBasic::AddUrl(const QString &url)
+{
+	if (url.left(7).compare("http://", Qt::CaseInsensitive) == 0 ||
+	    url.left(8).compare("https://", Qt::CaseInsensitive) == 0) {
+		AddDropSource(QT_TO_UTF8(url), DropType_Url);
+	}
+}
+
 void OBSBasic::dropEvent(QDropEvent *event)
 {
 	const QMimeData* mimeData = event->mimeData();
@@ -149,11 +169,14 @@ void OBSBasic::dropEvent(QDropEvent *event)
 		QList<QUrl> urls = mimeData->urls();
 
 		for (int i = 0; i < urls.size() && i < 5; i++) {
-			QString file = urls.at(i).toLocalFile();
+			QUrl url = urls[i];
+			QString file = url.toLocalFile();
 			QFileInfo fileInfo(file);
 
-			if (!fileInfo.exists())
+			if (!fileInfo.exists()) {
+				AddUrl(url.url());
 				continue;
+			}
 
 			QString suffixQStr = fileInfo.suffix();
 			QByteArray suffixArray = suffixQStr.toUtf8();

@@ -49,7 +49,7 @@ sudo install_name_tool -change \
 hr "Generating .pkg"
 packagesbuild ../CI/install/osx/CMakeLists.pkgproj
 
-if [ -v "$TRAVIS" ]; then
+if [[ $TRAVIS ]]; then
 	# Signing stuff
 	hr "Decrypting Cert"
 	openssl aes-256-cbc -K $encrypted_dd3c7f5e9db9_key -iv $encrypted_dd3c7f5e9db9_iv -in ../CI/osxcert/Certificates.p12.enc -out Certificates.p12 -d

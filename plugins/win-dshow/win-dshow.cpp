@@ -252,10 +252,8 @@ struct DShowInput {
 		WaitForSingleObject(thread, INFINITE);
 	}
 
-	void OnEncodedVideoData(enum AVCodecID id, unsigned char *data,
-				size_t size, long long ts);
-	void OnEncodedAudioData(enum AVCodecID id, unsigned char *data,
-				size_t size, long long ts);
+	void OnEncodedVideoData(unsigned char *data, size_t size, long long ts);
+	void OnEncodedAudioData(unsigned char *data, size_t size, long long ts);
 
 	void OnVideoData(const VideoConfig &config, unsigned char *data,
 			 size_t size, long long startTime, long long endTime);
@@ -464,21 +462,9 @@ static inline enum speaker_layout convert_speaker_layout(uint8_t channels)
 
 #define MAX_SW_RES_INT (1920 * 1080)
 
-void DShowInput::OnEncodedVideoData(enum AVCodecID id, unsigned char *data,
-				    size_t size, long long ts)
+void DShowInput::OnEncodedVideoData(unsigned char *data, size_t size,
+				    long long ts)
 {
-	if (!ffmpeg_decode_valid(video_decoder)) {
-		/* Only use MJPEG hardware decoding on resolutions higher
-		 * than 1920x1080.  The reason why is because we want to strike
-		 * a reasonable balance between hardware and CPU usage. */
-		bool useHW = videoConfig.format != VideoFormat::MJPEG ||
-			     (videoConfig.cx * videoConfig.cy) > MAX_SW_RES_INT;
-		if (ffmpeg_decode_init(video_decoder, id, useHW) < 0) {
-			blog(LOG_WARNING, "Could not initialize video decoder");
-			return;
-		}
-	}
-
 	bool got_output;
 	bool success = ffmpeg_decode_video(video_decoder, data, size, &ts,
 					   &frame, &got_output);
@@ -502,13 +488,9 @@ void DShowInput::OnVideoData(const VideoConfig &config, unsigned char *data,
 			     size_t size, long long startTime,
 			     long long endTime)
 {
-	if (videoConfig.format == VideoFormat::H264) {
-		OnEncodedVideoData(AV_CODEC_ID_H264, data, size, startTime);
-		return;
-	}
-
-	if (videoConfig.format == VideoFormat::MJPEG) {
-		OnEncodedVideoData(AV_CODEC_ID_MJPEG, data, size, startTime);
+	if (videoConfig.format == VideoFormat::H264 ||
+	    videoConfig.format == VideoFormat::MJPEG) {
+		OnEncodedVideoData(data, size, startTime);
 		return;
 	}
 
@@ -574,16 +556,9 @@ void DShowInput::OnVideoData(const VideoConfig &config, unsigned char *data,
 	UNUSED_PARAMETER(size);
 }
 
-void DShowInput::OnEncodedAudioData(enum AVCodecID id, unsigned char *data,
-				    size_t size, long long ts)
+void DShowInput::OnEncodedAudioData(unsigned char *data, size_t size,
+				    long long ts)
 {
-	if (!ffmpeg_decode_valid(audio_decoder)) {
-		if (ffmpeg_decode_init(audio_decoder, id, false) < 0) {
-			blog(LOG_WARNING, "Could not initialize audio decoder");
-			return;
-		}
-	}
-
 	bool got_output = false;
 	do {
 		bool success = ffmpeg_decode_audio(audio_decoder, data, size,
@@ -616,14 +591,10 @@ void DShowInput::OnAudioData(const AudioConfig &config, unsigned char *data,
 {
 	size_t block_size;
 
-	if (config.format == AudioFormat::AAC) {
-		OnEncodedAudioData(AV_CODEC_ID_AAC, data, size, startTime);
-		return;
-	} else if (config.format == AudioFormat::AC3) {
-		OnEncodedAudioData(AV_CODEC_ID_AC3, data, size, startTime);
-		return;
-	} else if (config.format == AudioFormat::MPGA) {
-		OnEncodedAudioData(AV_CODEC_ID_MP2, data, size, startTime);
+	if (config.format == AudioFormat::AAC ||
+	    config.format == AudioFormat::AC3 ||
+	    config.format == AudioFormat::MPGA) {
+		OnEncodedAudioData(data, size, startTime);
 		return;
 	}
 
@@ -951,6 +922,25 @@ bool DShowInput::UpdateVideoConfig(obs_data_t *settings)
 
 	SetupBuffering(settings);
 
+	if (videoConfig.format >= VideoFormat::MJPEG) {
+		enum AVCodecID id = AV_CODEC_ID_NONE;
+		if (videoConfig.format == VideoFormat::H264) {
+			id = AV_CODEC_ID_H264;
+		} else if (videoConfig.format == VideoFormat::MJPEG) {
+			id = AV_CODEC_ID_MJPEG;
+		}
+
+		/* Only use MJPEG hardware decoding on resolutions higher
+		 * than 1920x1080.  The reason why is because we want to strike
+		 * a reasonable balance between hardware and CPU usage. */
+		bool useHW = videoConfig.format != VideoFormat::MJPEG ||
+			     (videoConfig.cx * videoConfig.cy) > MAX_SW_RES_INT;
+		if (ffmpeg_decode_init(video_decoder, id, useHW) < 0) {
+			blog(LOG_WARNING, "Could not initialize video decoder");
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -1014,6 +1004,23 @@ bool DShowInput::UpdateAudioConfig(obs_data_t *settings)
 	case AudioMode::WaveOut:
 		mode = "WaveOut";
 		break;
+	}
+
+	if (audioConfig.format >= AudioFormat::AAC) {
+		enum AVCodecID id = AV_CODEC_ID_NONE;
+
+		if (audioConfig.format == AudioFormat::AAC) {
+			id = AV_CODEC_ID_AAC;
+		} else if (audioConfig.format == AudioFormat::AC3) {
+			id = AV_CODEC_ID_AC3;
+		} else if (audioConfig.format == AudioFormat::MPGA) {
+			id = AV_CODEC_ID_MP2;
+		}
+
+		if (ffmpeg_decode_init(audio_decoder, id, false) < 0) {
+			blog(LOG_WARNING, "Could not initialize audio decoder");
+			return false;
+		}
 	}
 
 	blog(LOG_INFO,

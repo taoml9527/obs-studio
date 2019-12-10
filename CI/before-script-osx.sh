@@ -8,6 +8,8 @@ if ! ./CI/check-format.sh; then
 	exit 1
 fi
 
+git status
+
 mkdir build
 cd build
 cmake -DENABLE_SPARKLE_UPDATER=ON \
@@ -19,3 +21,5 @@ cmake -DENABLE_SPARKLE_UPDATER=ON \
 -DBROWSER_DEPLOY=ON \
 -DBUILD_CAPTIONS=ON \
 -DCEF_ROOT_DIR=$PWD/../../cef_binary_${CEF_BUILD_VERSION}_macosx64 ..
+
+git status
